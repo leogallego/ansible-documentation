@@ -200,20 +200,29 @@ def convert_roles(text: str) -> str:
 _INCLUDE_RE = re.compile(r"^\.\. include:: (.+)$", re.MULTILINE)
 
 
-def resolve_includes(text: str, rst_file: pathlib.Path) -> str:
+def resolve_includes(
+    text: str,
+    rst_file: pathlib.Path,
+    rst_dir: pathlib.Path | None = None,
+) -> str:
     """Resolve ``.. include::`` directives by inlining referenced content.
 
     *rst_file* is the path to the RST file that contains the includes —
     relative paths inside ``.. include::`` are resolved against its parent
-    directory.  Missing files are silently removed (replaced with nothing).
+    directory.  Paths starting with ``/`` are resolved relative to *rst_dir*
+    (the RST source root), matching Sphinx convention.
 
+    Missing files are silently removed (replaced with nothing).
     Resolution is non-recursive: includes inside included content are not
     expanded.
     """
 
     def _replace(match: re.Match[str]) -> str:
         rel_path = match.group(1).strip()
-        target = (rst_file.parent / rel_path).resolve()
+        if rel_path.startswith("/") and rst_dir is not None:
+            target = (rst_dir / rel_path.lstrip("/")).resolve()
+        else:
+            target = (rst_file.parent / rel_path).resolve()
         if target.is_file():
             return target.read_text()
         return ""
@@ -269,7 +278,11 @@ def convert_rst_to_md(rst_text: str) -> str:
 def postprocess_md(text: str) -> str:
     """Clean up pandoc GFM output: strip HTML artifacts, collapse blank lines."""
     text = _SPAN_ID_RE.sub("", text)
-    text = _DIV_BLOCK_RE.sub("", text)
+    # Strip div blocks (may be nested — apply repeatedly until stable)
+    while _DIV_BLOCK_RE.search(text):
+        text = _DIV_BLOCK_RE.sub("", text)
+    # Strip any orphan closing tags left after nested div removal
+    text = text.replace("</div>", "")
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
@@ -351,9 +364,13 @@ def generate_manifest(
     }
 
 
-def preprocess_rst(text: str, rst_file: pathlib.Path) -> str:
+def preprocess_rst(
+    text: str,
+    rst_file: pathlib.Path,
+    rst_dir: pathlib.Path | None = None,
+) -> str:
     """Full pre-processing pipeline: includes -> directives -> roles."""
-    text = resolve_includes(text, rst_file)
+    text = resolve_includes(text, rst_file, rst_dir)
     text = strip_directives(text)
     text = convert_roles(text)
     return text
@@ -369,7 +386,7 @@ def convert_file(
     out_path = output_dir / rel
 
     rst_text = rst_file.read_text(encoding="utf-8")
-    preprocessed = preprocess_rst(rst_text, rst_file)
+    preprocessed = preprocess_rst(rst_text, rst_file, rst_dir)
     md_text = convert_rst_to_md(preprocessed)
     md_text = postprocess_md(md_text)
 
@@ -381,33 +398,37 @@ def convert_file(
     return out_path
 
 
-def run() -> None:
+def run(
+    rst_dir: pathlib.Path = RST_DIR,
+    output_dir: pathlib.Path = OUTPUT_DIR,
+    core_config: pathlib.Path = CORE_CONFIG,
+) -> None:
     """Run the full conversion pipeline."""
     import shutil
 
-    if OUTPUT_DIR.exists():
-        shutil.rmtree(OUTPUT_DIR)
-    OUTPUT_DIR.mkdir(parents=True)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
 
-    rst_files = discover_rst_files(RST_DIR)
+    rst_files = discover_rst_files(rst_dir)
     print(f"Found {len(rst_files)} RST files to convert.")
 
     converted = 0
     for rst_file in rst_files:
-        rel = rst_file.relative_to(RST_DIR)
-        result = convert_file(rst_file, RST_DIR, OUTPUT_DIR)
+        rel = rst_file.relative_to(rst_dir)
+        result = convert_file(rst_file, rst_dir, output_dir)
         if result:
             converted += 1
-            print(f"  {rel} -> {result.relative_to(OUTPUT_DIR)}")
+            print(f"  {rel} -> {result.relative_to(output_dir)}")
         else:
             print(f"  {rel} -> (skipped, empty output)")
 
     print(f"\nConverted {converted}/{len(rst_files)} files.")
 
-    core_files = load_core_config(CORE_CONFIG)
-    manifest = generate_manifest(OUTPUT_DIR, core_files)
+    core_files = load_core_config(core_config)
+    manifest = generate_manifest(output_dir, core_files)
 
-    manifest_path = OUTPUT_DIR / "manifest.json"
+    manifest_path = output_dir / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
     print(f"Manifest written to {manifest_path} ({len(manifest['files'])} entries).")
@@ -433,8 +454,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     """CLI entry point."""
-    parse_args()
-    run()
+    args = parse_args()
+    run(rst_dir=args.rst_dir, output_dir=args.output_dir)
 
 
 if __name__ == "__main__":

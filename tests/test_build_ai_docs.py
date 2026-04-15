@@ -593,6 +593,31 @@ class TestResolveIncludes:
         result = build_ai_docs.resolve_includes(text, rst_file)
         assert result == text
 
+    def test_resolves_absolute_include_relative_to_rst_dir(
+        self, tmp_path: Path
+    ) -> None:
+        rst_dir = tmp_path / "rst"
+        snippets = rst_dir / "shared_snippets"
+        snippets.mkdir(parents=True)
+        (snippets / "basic_concepts.txt").write_text("Basic concepts content.\n")
+        guide = rst_dir / "getting_started"
+        guide.mkdir()
+        rst_file = guide / "page.rst"
+
+        text = "Before.\n\n.. include:: /shared_snippets/basic_concepts.txt\n\nAfter.\n"
+        result = build_ai_docs.resolve_includes(text, rst_file, rst_dir=rst_dir)
+        assert "Basic concepts content." in result
+        assert ".. include::" not in result
+
+    def test_absolute_include_without_rst_dir_is_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        rst_file = tmp_path / "guide.rst"
+        text = "Before.\n\n.. include:: /shared_snippets/missing.txt\n\nAfter.\n"
+        result = build_ai_docs.resolve_includes(text, rst_file)
+        assert ".. include::" not in result
+        assert "Before." in result
+
 
 class TestDiscoverRstFiles:
     """Tests for discover_rst_files()."""
@@ -772,6 +797,21 @@ class TestPostprocessMd:
         result = build_ai_docs.postprocess_md(text)
         assert "```yaml" in result
         assert "- hosts: all" in result
+
+    def test_strips_nested_divs(self) -> None:
+        text = (
+            '<div class="only">\n\n'
+            "html\n\n"
+            '<div class="toctree" maxdepth="2">\n\n'
+            "file1\n\n"
+            "</div>\n\n"
+            "</div>\n\n"
+            "Content.\n"
+        )
+        result = build_ai_docs.postprocess_md(text)
+        assert "<div" not in result
+        assert "</div>" not in result
+        assert "Content." in result
 
     def test_collapses_excessive_blank_lines(self) -> None:
         text = "First.\n\n\n\n\nSecond.\n"
@@ -984,7 +1024,7 @@ class TestConvertFile:
 class TestMain:
     """Tests for run() and main()."""
 
-    def test_run_creates_output_and_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_run_creates_output_and_manifest(self, tmp_path: Path) -> None:
         rst_dir = tmp_path / "rst"
         guide = rst_dir / "playbook_guide"
         guide.mkdir(parents=True)
@@ -1000,11 +1040,11 @@ class TestMain:
         core_config = tmp_path / "core.yml"
         core_config.write_text("core_files:\n  - playbook_guide/intro.md\n")
 
-        monkeypatch.setattr(build_ai_docs, "RST_DIR", rst_dir)
-        monkeypatch.setattr(build_ai_docs, "OUTPUT_DIR", output_dir)
-        monkeypatch.setattr(build_ai_docs, "CORE_CONFIG", core_config)
-
-        build_ai_docs.run()
+        build_ai_docs.run(
+            rst_dir=rst_dir,
+            output_dir=output_dir,
+            core_config=core_config,
+        )
 
         assert output_dir.exists()
         assert (output_dir / "playbook_guide" / "intro.md").exists()
@@ -1045,7 +1085,7 @@ class TestIntegration:
         # Should not have RST role syntax
         assert ":ref:" not in content
 
-    def test_full_pipeline_on_subset(self, real_rst_dir, tmp_path, monkeypatch):
+    def test_full_pipeline_on_subset(self, real_rst_dir, tmp_path):
         """Run the full pipeline on a small subset to validate end-to-end."""
         import shutil as _shutil
 
@@ -1067,11 +1107,11 @@ class TestIntegration:
         core_config = tmp_path / "core.yml"
         core_config.write_text("core_files:\n  - playbook_guide/playbooks_intro.md\n")
 
-        monkeypatch.setattr(build_ai_docs, "RST_DIR", mini_rst)
-        monkeypatch.setattr(build_ai_docs, "OUTPUT_DIR", output_dir)
-        monkeypatch.setattr(build_ai_docs, "CORE_CONFIG", core_config)
-
-        build_ai_docs.run()
+        build_ai_docs.run(
+            rst_dir=mini_rst,
+            output_dir=output_dir,
+            core_config=core_config,
+        )
 
         manifest_path = output_dir / "manifest.json"
         assert manifest_path.exists()

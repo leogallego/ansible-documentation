@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-ai-docs-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-ai-docs:
     runs-on: ubuntu-latest
