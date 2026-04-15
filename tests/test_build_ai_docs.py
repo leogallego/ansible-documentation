@@ -852,3 +852,81 @@ class TestExtractSummary:
         md = "# Title\n"
         result = build_ai_docs.extract_summary(md)
         assert result == ""
+
+
+class TestLoadCoreConfig:
+    """Tests for load_core_config()."""
+
+    def test_loads_core_files_list(self, tmp_path: Path) -> None:
+        config = tmp_path / "ai-docs-core.yml"
+        config.write_text(
+            "core_files:\n"
+            "  - playbook_guide/playbooks.md\n"
+            "  - dev_guide/developing_modules.md\n"
+        )
+        result = build_ai_docs.load_core_config(config)
+        assert result == {
+            "playbook_guide/playbooks.md",
+            "dev_guide/developing_modules.md",
+        }
+
+    def test_returns_empty_set_for_missing_file(self, tmp_path: Path) -> None:
+        config = tmp_path / "nonexistent.yml"
+        result = build_ai_docs.load_core_config(config)
+        assert result == set()
+
+
+class TestGenerateManifest:
+    """Tests for generate_manifest()."""
+
+    def test_generates_manifest_structure(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "ai-docs"
+        guide = out_dir / "playbook_guide"
+        guide.mkdir(parents=True)
+        (guide / "playbooks.md").write_text(
+            "# Ansible playbooks\n\n"
+            "Playbooks are automation blueprints. They describe the desired state.\n"
+        )
+        (guide / "roles.md").write_text(
+            "# Using roles\n\nRoles let you organize tasks. More detail here.\n"
+        )
+        core_files = {"playbook_guide/playbooks.md"}
+        manifest = build_ai_docs.generate_manifest(out_dir, core_files)
+
+        assert manifest["version"] == "1.0"
+        assert "generated" in manifest
+        assert "base_url" in manifest
+        assert len(manifest["files"]) == 2
+
+        files_by_path = {f["path"]: f for f in manifest["files"]}
+
+        playbooks = files_by_path["playbook_guide/playbooks.md"]
+        assert playbooks["core"] is True
+        assert playbooks["topic"] == "playbook_guide"
+        assert playbooks["title"] == "Ansible playbooks"
+        assert playbooks["audience"] == "author"
+        assert playbooks["lines"] > 0
+        assert playbooks["summary"] != ""
+
+        roles = files_by_path["playbook_guide/roles.md"]
+        assert roles["core"] is False
+        assert roles["topic"] == "playbook_guide"
+        assert roles["title"] == "Using roles"
+        assert roles["audience"] == "author"
+        assert roles["lines"] > 0
+        assert roles["summary"] != ""
+
+    def test_manifest_files_are_sorted_by_path(self, tmp_path: Path) -> None:
+        out_dir = tmp_path / "ai-docs"
+        for name in ("c_guide", "a_guide", "b_guide"):
+            d = out_dir / name
+            d.mkdir(parents=True)
+            (d / "page.md").write_text(f"# {name} page\n\nContent for {name}.\n")
+        manifest = build_ai_docs.generate_manifest(out_dir, set())
+        paths = [f["path"] for f in manifest["files"]]
+        assert paths == sorted(paths)
+        assert paths == [
+            "a_guide/page.md",
+            "b_guide/page.md",
+            "c_guide/page.md",
+        ]

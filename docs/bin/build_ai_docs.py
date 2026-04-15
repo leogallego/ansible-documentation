@@ -17,10 +17,17 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 RST_DIR = ROOT / "docs" / "docsite" / "rst"
 OUTPUT_DIR = ROOT / "docs" / "docsite" / "ai-docs"
 CORE_CONFIG = ROOT / "docs" / "ai-docs-core.yml"
+
+BASE_URL = (
+    "https://raw.githubusercontent.com/leogallego/"
+    "ansible-documentation/ai-docs/docs/docsite/ai-docs"
+)
 
 # Top-level files to exclude (navigation-only)
 EXCLUDE_FILES = {"ansible_index.rst", "core_index.rst"}
@@ -304,6 +311,44 @@ def extract_summary(md_text: str) -> str:
             return summary[:117] + "..."
         return summary
     return ""
+
+
+def load_core_config(config_path: pathlib.Path) -> set[str]:
+    """Load the set of core file paths from the YAML config."""
+    if not config_path.is_file():
+        return set()
+    with open(config_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return set(data.get("core_files", []))
+
+
+def generate_manifest(
+    output_dir: pathlib.Path,
+    core_files: set[str],
+) -> dict:
+    """Generate manifest.json data from the converted markdown files."""
+    files: list[dict] = []
+    for md_file in sorted(output_dir.rglob("*.md")):
+        rel_path = str(md_file.relative_to(output_dir))
+        content = md_file.read_text(encoding="utf-8")
+        topic = md_file.relative_to(output_dir).parts[0]
+        files.append(
+            {
+                "path": rel_path,
+                "topic": topic,
+                "title": extract_title(content),
+                "audience": get_audience(topic),
+                "lines": content.count("\n") + 1,
+                "core": rel_path in core_files,
+                "summary": extract_summary(content),
+            }
+        )
+    return {
+        "version": "1.0",
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "base_url": BASE_URL,
+        "files": files,
+    }
 
 
 def main() -> None:
