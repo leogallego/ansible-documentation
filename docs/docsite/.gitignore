@@ -14,5 +14,6 @@ objects.inv
 rst/modules/*.rst
 rst/playbooks_keywords.rst
 rst/collections/
+ai-docs/
 
 *.min.css
