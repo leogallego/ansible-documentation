@@ -182,6 +182,63 @@ def convert_roles(text: str) -> str:
     return _ROLE_RE.sub(_convert_role_match, text)
 
 
+# ---------------------------------------------------------------------------
+# Include resolution
+# ---------------------------------------------------------------------------
+
+_INCLUDE_RE = re.compile(r"^\.\. include:: (.+)$", re.MULTILINE)
+
+
+def resolve_includes(text: str, rst_file: pathlib.Path) -> str:
+    """Resolve ``.. include::`` directives by inlining referenced content.
+
+    *rst_file* is the path to the RST file that contains the includes —
+    relative paths inside ``.. include::`` are resolved against its parent
+    directory.  Missing files are silently removed (replaced with nothing).
+
+    Resolution is non-recursive: includes inside included content are not
+    expanded.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        rel_path = match.group(1).strip()
+        target = (rst_file.parent / rel_path).resolve()
+        if target.is_file():
+            return target.read_text()
+        return ""
+
+    return _INCLUDE_RE.sub(_replace, text)
+
+
+# ---------------------------------------------------------------------------
+# RST file discovery
+# ---------------------------------------------------------------------------
+
+
+def discover_rst_files(rst_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Return a sorted list of convertible RST files under *rst_dir*.
+
+    Exclusion rules:
+    1. Top-level files (directly in *rst_dir*, no subdirectory).
+    2. Files inside ``EXCLUDE_DIRS`` directories.
+    3. Files whose name appears in ``EXCLUDE_FILES`` or ``EXCLUDE_NAMES``.
+    """
+    results: list[pathlib.Path] = []
+    for rst_file in sorted(rst_dir.rglob("*.rst")):
+        rel = rst_file.relative_to(rst_dir)
+        # Skip top-level files (no subdirectory)
+        if len(rel.parts) == 1:
+            continue
+        # Skip excluded directories
+        if rel.parts[0] in EXCLUDE_DIRS:
+            continue
+        # Skip excluded file names
+        if rst_file.name in EXCLUDE_FILES or rst_file.name in EXCLUDE_NAMES:
+            continue
+        results.append(rst_file)
+    return results
+
+
 def main() -> None:
     """Entry point — implemented in later tasks."""
     raise NotImplementedError

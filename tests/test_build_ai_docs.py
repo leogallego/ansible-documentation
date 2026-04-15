@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -558,3 +559,103 @@ class TestConvertRoles:
         result = build_ai_docs.convert_roles(text)
         assert result == "Click here"
         assert "some_target" not in result
+
+
+class TestResolveIncludes:
+    """Tests for resolve_includes()."""
+
+    def test_resolves_relative_include(self, tmp_path: Path) -> None:
+        snippet = tmp_path / "shared_snippets" / "snippet.txt"
+        snippet.parent.mkdir()
+        snippet.write_text("Included content here.\n")
+        rst_file = tmp_path / "guide.rst"
+        text = "Before.\n\n.. include:: shared_snippets/snippet.txt\n\nAfter.\n"
+        result = build_ai_docs.resolve_includes(text, rst_file)
+        assert "Included content here." in result
+        assert ".. include::" not in result
+        assert "Before." in result
+        assert "After." in result
+
+    def test_missing_include_removed_silently(self, tmp_path: Path) -> None:
+        rst_file = tmp_path / "guide.rst"
+        text = "Before.\n\n.. include:: nonexistent/file.txt\n\nAfter.\n"
+        result = build_ai_docs.resolve_includes(text, rst_file)
+        assert ".. include::" not in result
+        assert "Before." in result
+        assert "After." in result
+
+    def test_no_includes_unchanged(self, tmp_path: Path) -> None:
+        rst_file = tmp_path / "guide.rst"
+        text = "Just plain text.\n\nNo includes here.\n"
+        result = build_ai_docs.resolve_includes(text, rst_file)
+        assert result == text
+
+
+class TestDiscoverRstFiles:
+    """Tests for discover_rst_files()."""
+
+    def _create_rst_tree(self, tmp_path: Path) -> Path:
+        """Create a realistic RST directory tree for testing."""
+        rst_dir = tmp_path / "rst"
+        rst_dir.mkdir()
+        # Top-level files (should be excluded)
+        (rst_dir / "404.rst").write_text("Not found.\n")
+        (rst_dir / "ansible_index.rst").write_text("Index.\n")
+        (rst_dir / "core_index.rst").write_text("Core index.\n")
+        # Subdirectory with content files
+        guide = rst_dir / "playbook_guide"
+        guide.mkdir()
+        (guide / "playbooks.rst").write_text("Playbooks.\n")
+        (guide / "roles.rst").write_text("Roles.\n")
+        (guide / "index.rst").write_text("Guide index.\n")
+        # Another subdirectory
+        dev = rst_dir / "dev_guide"
+        dev.mkdir()
+        (dev / "developing_modules.rst").write_text("Modules.\n")
+        # Excluded directories
+        images = rst_dir / "images"
+        images.mkdir()
+        (images / "logo.rst").write_text("Logo.\n")
+        snippets = rst_dir / "shared_snippets"
+        snippets.mkdir()
+        (snippets / "with2loop.rst").write_text("Snippet.\n")
+        return rst_dir
+
+    def test_finds_rst_files(self, tmp_path: Path) -> None:
+        rst_dir = self._create_rst_tree(tmp_path)
+        result = build_ai_docs.discover_rst_files(rst_dir)
+        names = [f.name for f in result]
+        assert "playbooks.rst" in names
+        assert "roles.rst" in names
+        assert "developing_modules.rst" in names
+
+    def test_excludes_index_rst(self, tmp_path: Path) -> None:
+        rst_dir = self._create_rst_tree(tmp_path)
+        result = build_ai_docs.discover_rst_files(rst_dir)
+        names = [f.name for f in result]
+        assert "index.rst" not in names
+
+    def test_excludes_top_level_files(self, tmp_path: Path) -> None:
+        rst_dir = self._create_rst_tree(tmp_path)
+        result = build_ai_docs.discover_rst_files(rst_dir)
+        names = [f.name for f in result]
+        assert "404.rst" not in names
+        assert "ansible_index.rst" not in names
+        assert "core_index.rst" not in names
+
+    def test_excludes_images_dir(self, tmp_path: Path) -> None:
+        rst_dir = self._create_rst_tree(tmp_path)
+        result = build_ai_docs.discover_rst_files(rst_dir)
+        parents = [f.parent.name for f in result]
+        assert "images" not in parents
+
+    def test_excludes_shared_snippets_dir(self, tmp_path: Path) -> None:
+        rst_dir = self._create_rst_tree(tmp_path)
+        result = build_ai_docs.discover_rst_files(rst_dir)
+        parents = [f.parent.name for f in result]
+        assert "shared_snippets" not in parents
+
+    def test_returns_sorted_paths(self, tmp_path: Path) -> None:
+        rst_dir = self._create_rst_tree(tmp_path)
+        result = build_ai_docs.discover_rst_files(rst_dir)
+        assert result == sorted(result)
