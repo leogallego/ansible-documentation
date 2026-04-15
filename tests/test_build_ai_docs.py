@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -659,3 +661,120 @@ class TestDiscoverRstFiles:
         rst_dir = self._create_rst_tree(tmp_path)
         result = build_ai_docs.discover_rst_files(rst_dir)
         assert result == sorted(result)
+
+
+class TestConvertRstToMd:
+    """Tests for convert_rst_to_md()."""
+
+    def test_converts_heading(self) -> None:
+        rst = "My Heading\n==========\n\nSome body text.\n"
+        result = build_ai_docs.convert_rst_to_md(rst)
+        assert "# My Heading" in result
+        assert "Some body text." in result
+
+    def test_converts_code_block(self) -> None:
+        rst = (
+            "Example:\n"
+            "\n"
+            ".. code-block:: yaml\n"
+            "\n"
+            "   - hosts: all\n"
+            "     tasks: []\n"
+            "\n"
+        )
+        result = build_ai_docs.convert_rst_to_md(rst)
+        assert "```" in result
+        assert "- hosts: all" in result
+
+    def test_converts_bullet_list(self) -> None:
+        rst = (
+            "Items:\n"
+            "\n"
+            "- First item\n"
+            "- Second item\n"
+            "- Third item\n"
+        )
+        result = build_ai_docs.convert_rst_to_md(rst)
+        assert "First item" in result
+        assert "Second item" in result
+        assert "Third item" in result
+
+    def test_converts_note_to_callout(self) -> None:
+        rst = (
+            ".. note::\n"
+            "\n"
+            "   This is an important note.\n"
+            "\n"
+        )
+        result = build_ai_docs.convert_rst_to_md(rst)
+        assert "important note" in result
+
+    def test_raises_on_missing_pandoc(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_run(*args: object, **kwargs: object) -> None:
+            raise FileNotFoundError("No such file or directory: 'pandoc'")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        with pytest.raises(SystemExit):
+            build_ai_docs.convert_rst_to_md("Some RST text.")
+
+
+class TestPostprocessMd:
+    """Tests for postprocess_md()."""
+
+    def test_strips_span_id_tags(self) -> None:
+        text = '<span id="my-anchor"></span>\n\n# Heading\n'
+        result = build_ai_docs.postprocess_md(text)
+        assert "<span" not in result
+        assert "# Heading" in result
+
+    def test_strips_div_blocks(self) -> None:
+        text = (
+            'Some text.\n\n<div class="contents" local="">\n\n'
+            "- item1\n- item2\n\n</div>\n\nMore text.\n"
+        )
+        result = build_ai_docs.postprocess_md(text)
+        assert "<div" not in result
+        assert "</div>" not in result
+        assert "Some text." in result
+        assert "More text." in result
+
+    def test_strips_toctree_div(self) -> None:
+        text = (
+            "Before.\n\n"
+            '<div class="toctree-wrapper compound">\n\n'
+            "- entry1\n- entry2\n\n"
+            "</div>\n\n"
+            "After.\n"
+        )
+        result = build_ai_docs.postprocess_md(text)
+        assert "<div" not in result
+        assert "</div>" not in result
+        assert "Before." in result
+        assert "After." in result
+
+    def test_strips_versionadded_div(self) -> None:
+        text = (
+            "Feature text.\n\n"
+            '<div class="versionadded">\n\n'
+            "New in version 2.9.\n\n"
+            "</div>\n\n"
+            "More text.\n"
+        )
+        result = build_ai_docs.postprocess_md(text)
+        assert "<div" not in result
+        assert "</div>" not in result
+        assert "Feature text." in result
+        assert "More text." in result
+
+    def test_preserves_code_blocks(self) -> None:
+        text = "```yaml\n- hosts: all\n  tasks: []\n```\n"
+        result = build_ai_docs.postprocess_md(text)
+        assert "```yaml" in result
+        assert "- hosts: all" in result
+
+    def test_collapses_excessive_blank_lines(self) -> None:
+        text = "First.\n\n\n\n\nSecond.\n"
+        result = build_ai_docs.postprocess_md(text)
+        assert "\n\n\n" not in result
+        assert "First." in result
+        assert "Second." in result

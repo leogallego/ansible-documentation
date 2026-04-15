@@ -88,6 +88,10 @@ _COMMENT_RE = re.compile(
 # Collapse three or more consecutive newlines to exactly two.
 _EXCESS_NEWLINES_RE = re.compile(r"\n{3,}")
 
+# Pandoc GFM post-processing patterns
+_SPAN_ID_RE = re.compile(r'<span id="[^"]*"></span>')
+_DIV_BLOCK_RE = re.compile(r"<div[^>]*>.*?</div>", re.DOTALL)
+
 
 def strip_directives(text: str) -> str:
     """Remove Sphinx-only directives, targets, substitutions, and comments."""
@@ -237,6 +241,30 @@ def discover_rst_files(rst_dir: pathlib.Path) -> list[pathlib.Path]:
             continue
         results.append(rst_file)
     return results
+
+
+def convert_rst_to_md(rst_text: str) -> str:
+    """Convert RST text to GitHub Flavored Markdown using pandoc."""
+    try:
+        result = subprocess.run(
+            ["pandoc", "-f", "rst", "-t", "gfm", "--wrap=none"],
+            input=rst_text,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        print("Error: pandoc is not installed or not in PATH.", file=sys.stderr)
+        sys.exit(1)
+    return result.stdout
+
+
+def postprocess_md(text: str) -> str:
+    """Clean up pandoc GFM output: strip HTML artifacts, collapse blank lines."""
+    text = _SPAN_ID_RE.sub("", text)
+    text = _DIV_BLOCK_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
 
 
 def main() -> None:
