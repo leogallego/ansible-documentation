@@ -267,6 +267,45 @@ def postprocess_md(text: str) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------
+# Metadata extraction
+# ---------------------------------------------------------------------------
+
+_TITLE_RE = re.compile(r"^# (.+)$", re.MULTILINE)
+
+
+def extract_title(md_text: str) -> str:
+    """Extract the first H1 heading from markdown text."""
+    match = _TITLE_RE.search(md_text)
+    if match:
+        return match.group(1).strip()
+    return "Untitled"
+
+
+def get_audience(topic: str) -> str:
+    """Classify audience from topic directory name."""
+    return AUDIENCE_MAP.get(topic, "both")
+
+
+def extract_summary(md_text: str) -> str:
+    """Extract a one-line summary from the first paragraph after the title."""
+    parts = md_text.split("\n\n")
+    for part in parts:
+        text = part.strip()
+        if not text or text.startswith("#"):
+            continue
+        # Take first sentence (up to first period followed by space or end)
+        sentence_match = re.match(r"^(.+?\.)\s", text)
+        if sentence_match:
+            summary = sentence_match.group(1)
+        else:
+            summary = text
+        if len(summary) > 120:
+            return summary[:117] + "..."
+        return summary
+    return ""
+
+
 def main() -> None:
     """Entry point — implemented in later tasks."""
     raise NotImplementedError

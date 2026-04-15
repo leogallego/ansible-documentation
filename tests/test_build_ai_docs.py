@@ -778,3 +778,77 @@ class TestPostprocessMd:
         assert "\n\n\n" not in result
         assert "First." in result
         assert "Second." in result
+
+
+class TestExtractTitle:
+    """Tests for extract_title()."""
+
+    def test_extracts_h1_title(self) -> None:
+        md = "# Ansible playbooks\n\nText.\n"
+        result = build_ai_docs.extract_title(md)
+        assert result == "Ansible playbooks"
+
+    def test_extracts_h1_with_trailing_whitespace(self) -> None:
+        md = "# Loops  \n\nText.\n"
+        result = build_ai_docs.extract_title(md)
+        assert result == "Loops"
+
+    def test_returns_untitled_when_no_heading(self) -> None:
+        md = "Just plain text.\n"
+        result = build_ai_docs.extract_title(md)
+        assert result == "Untitled"
+
+    def test_ignores_h2_for_title(self) -> None:
+        md = "## Section heading\n\nSome text.\n\n# Actual title\n\nMore text.\n"
+        result = build_ai_docs.extract_title(md)
+        assert result == "Actual title"
+
+
+class TestGetAudience:
+    """Tests for get_audience()."""
+
+    def test_dev_guide_is_developer(self) -> None:
+        assert build_ai_docs.get_audience("dev_guide") == "developer"
+
+    def test_playbook_guide_is_author(self) -> None:
+        assert build_ai_docs.get_audience("playbook_guide") == "author"
+
+    def test_inventory_guide_is_author(self) -> None:
+        assert build_ai_docs.get_audience("inventory_guide") == "author"
+
+    def test_unknown_topic_is_both(self) -> None:
+        assert build_ai_docs.get_audience("network") == "both"
+
+    def test_reference_appendices_is_both(self) -> None:
+        assert build_ai_docs.get_audience("reference_appendices") == "both"
+
+
+class TestExtractSummary:
+    """Tests for extract_summary()."""
+
+    def test_extracts_first_paragraph(self) -> None:
+        md = "# Title\n\nThis is the intro paragraph about playbooks.\n\nMore details.\n"
+        result = build_ai_docs.extract_summary(md)
+        assert result == "This is the intro paragraph about playbooks."
+
+    def test_truncates_long_summary(self) -> None:
+        long_text = "A" * 200
+        md = f"# Title\n\n{long_text}\n\nMore.\n"
+        result = build_ai_docs.extract_summary(md)
+        assert len(result) <= 120
+        assert result.endswith("...")
+
+    def test_takes_first_sentence_from_long_paragraph(self) -> None:
+        md = (
+            "# Title\n\n"
+            "First sentence here. Second sentence continues with more detail. "
+            "Third sentence wraps up.\n\n"
+            "Another paragraph.\n"
+        )
+        result = build_ai_docs.extract_summary(md)
+        assert result == "First sentence here."
+
+    def test_returns_empty_when_no_content(self) -> None:
+        md = "# Title\n"
+        result = build_ai_docs.extract_summary(md)
+        assert result == ""
