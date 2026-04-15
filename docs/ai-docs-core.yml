@@ -1,0 +1,35 @@
+# Files to include in the bundled core set for the ansible-docs skill.
+# Paths are relative to the ai-docs/ output directory.
+# Changing this list and re-running the pipeline updates the manifest.
+core_files:
+  # Playbook authoring essentials
+  - playbook_guide/playbooks_intro.md
+  - playbook_guide/playbooks_variables.md
+  - playbook_guide/playbooks_loops.md
+  - playbook_guide/playbooks_conditionals.md
+  - playbook_guide/playbooks_error_handling.md
+  - playbook_guide/playbooks_reuse_roles.md
+  - playbook_guide/playbooks_handlers.md
+
+  # Reference
+  - reference_appendices/config.md
+  - reference_appendices/playbooks_keywords.md
+  - reference_appendices/special_variables.md
+  - reference_appendices/general_precedence.md
+
+  # Inventory
+  - inventory_guide/intro_inventory.md
+  - inventory_guide/connection_details.md
+
+  # Developer guide essentials
+  - dev_guide/developing_collections.md
+  - dev_guide/developing_modules_general.md
+  - dev_guide/developing_plugins.md
+  - dev_guide/testing.md
+
+  # Collections
+  - collections_guide/collections_using.md
+  - collections_guide/collections_installing.md
+
+  # Latest porting guide (update on each release)
+  - porting_guides/porting_guide_core_2.18.md

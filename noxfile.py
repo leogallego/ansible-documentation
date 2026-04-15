@@ -283,6 +283,16 @@ def make(session: nox.Session):
     )
 
 
+@nox.session(name="build-ai-docs")
+def build_ai_docs(session: nox.Session):
+    """
+    Convert RST documentation to AI-friendly Markdown
+    """
+    install(session, req="requirements")
+    _clone_core_check(session)
+    session.run("python", "docs/bin/build_ai_docs.py", *session.posargs)
+
+
 @nox.session
 def tag(session: nox.Session):
     """
