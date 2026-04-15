@@ -1014,3 +1014,76 @@ class TestMain:
         assert manifest["version"] == "1.0"
         assert len(manifest["files"]) == 1
         assert manifest["files"][0]["core"] is True
+
+
+class TestIntegration:
+    """Integration tests that run against real RST files. Requires pandoc."""
+
+    @pytest.fixture()
+    def real_rst_dir(self):
+        """Return the real RST directory, skip if not available."""
+        rst_dir = Path(__file__).resolve().parent.parent / "docs" / "docsite" / "rst"
+        if not rst_dir.is_dir():
+            pytest.skip("RST source directory not found")
+        return rst_dir
+
+    def test_convert_real_file(self, real_rst_dir, tmp_path):
+        """Convert a known real RST file and verify output quality."""
+        rst_file = real_rst_dir / "playbook_guide" / "playbooks_intro.rst"
+        if not rst_file.exists():
+            pytest.skip("playbooks_intro.rst not found")
+
+        output_dir = tmp_path / "ai-docs"
+        result = build_ai_docs.convert_file(rst_file, real_rst_dir, output_dir)
+
+        assert result is not None
+        assert result.exists()
+        content = result.read_text()
+
+        # Should have a title
+        assert "# " in content
+        # Should not have RST role syntax
+        assert ":ref:" not in content
+
+    def test_full_pipeline_on_subset(self, real_rst_dir, tmp_path, monkeypatch):
+        """Run the full pipeline on a small subset to validate end-to-end."""
+        import shutil as _shutil
+
+        mini_rst = tmp_path / "rst"
+        guide = mini_rst / "playbook_guide"
+        guide.mkdir(parents=True)
+
+        for name in ("playbooks_intro.rst", "playbooks_loops.rst"):
+            src = real_rst_dir / "playbook_guide" / name
+            if src.exists():
+                _shutil.copy2(src, guide / name)
+
+        # Copy shared_snippets for include resolution
+        snippets_src = real_rst_dir / "shared_snippets"
+        if snippets_src.is_dir():
+            _shutil.copytree(snippets_src, mini_rst / "shared_snippets")
+
+        output_dir = tmp_path / "ai-docs"
+        core_config = tmp_path / "core.yml"
+        core_config.write_text("core_files:\n  - playbook_guide/playbooks_intro.md\n")
+
+        monkeypatch.setattr(build_ai_docs, "RST_DIR", mini_rst)
+        monkeypatch.setattr(build_ai_docs, "OUTPUT_DIR", output_dir)
+        monkeypatch.setattr(build_ai_docs, "CORE_CONFIG", core_config)
+
+        build_ai_docs.run()
+
+        manifest_path = output_dir / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+
+        assert manifest["version"] == "1.0"
+        assert len(manifest["files"]) >= 1
+
+        intro = next(
+            (f for f in manifest["files"] if "intro" in f["path"]), None
+        )
+        if intro:
+            assert intro["core"] is True
+            assert intro["audience"] == "author"
+            assert intro["title"] != "Untitled"
