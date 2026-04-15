@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import textwrap
@@ -930,3 +931,86 @@ class TestGenerateManifest:
             "b_guide/page.md",
             "c_guide/page.md",
         ]
+
+
+class TestConvertFile:
+    """Tests for convert_file()."""
+
+    def test_converts_rst_to_md_end_to_end(self, tmp_path: Path) -> None:
+        rst_dir = tmp_path / "rst"
+        guide = rst_dir / "playbook_guide"
+        guide.mkdir(parents=True)
+        (guide / "intro.rst").write_text(
+            ".. _playbooks_intro:\n"
+            "\n"
+            "*****************\n"
+            "Ansible playbooks\n"
+            "*****************\n"
+            "\n"
+            "Playbooks are great. See :ref:`loops <playbooks_loops>` for more.\n"
+            "\n"
+            ".. toctree::\n"
+            "   :maxdepth: 2\n"
+            "\n"
+            "   loops\n"
+            "\n"
+            ".. code-block:: yaml\n"
+            "\n"
+            "   - name: Example\n"
+            "     ansible.builtin.debug:\n"
+            "       msg: hello\n"
+        )
+
+        output_dir = tmp_path / "ai-docs"
+        result = build_ai_docs.convert_file(
+            rst_file=guide / "intro.rst",
+            rst_dir=rst_dir,
+            output_dir=output_dir,
+        )
+
+        assert result is not None
+        out_file = output_dir / "playbook_guide" / "intro.md"
+        assert out_file.exists()
+        content = out_file.read_text()
+
+        assert "Ansible playbooks" in content
+        assert "loops" in content
+        assert ":ref:" not in content
+        assert "toctree" not in content
+        assert "ansible.builtin.debug" in content
+        assert "_playbooks_intro" not in content
+
+
+class TestMain:
+    """Tests for run() and main()."""
+
+    def test_run_creates_output_and_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        rst_dir = tmp_path / "rst"
+        guide = rst_dir / "playbook_guide"
+        guide.mkdir(parents=True)
+        (guide / "intro.rst").write_text(
+            "***********\n"
+            "Intro Guide\n"
+            "***********\n"
+            "\n"
+            "Some content here.\n"
+        )
+
+        output_dir = tmp_path / "ai-docs"
+        core_config = tmp_path / "core.yml"
+        core_config.write_text("core_files:\n  - playbook_guide/intro.md\n")
+
+        monkeypatch.setattr(build_ai_docs, "RST_DIR", rst_dir)
+        monkeypatch.setattr(build_ai_docs, "OUTPUT_DIR", output_dir)
+        monkeypatch.setattr(build_ai_docs, "CORE_CONFIG", core_config)
+
+        build_ai_docs.run()
+
+        assert output_dir.exists()
+        assert (output_dir / "playbook_guide" / "intro.md").exists()
+        assert (output_dir / "manifest.json").exists()
+
+        manifest = json.loads((output_dir / "manifest.json").read_text())
+        assert manifest["version"] == "1.0"
+        assert len(manifest["files"]) == 1
+        assert manifest["files"][0]["core"] is True

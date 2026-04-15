@@ -351,9 +351,90 @@ def generate_manifest(
     }
 
 
+def preprocess_rst(text: str, rst_file: pathlib.Path) -> str:
+    """Full pre-processing pipeline: includes -> directives -> roles."""
+    text = resolve_includes(text, rst_file)
+    text = strip_directives(text)
+    text = convert_roles(text)
+    return text
+
+
+def convert_file(
+    rst_file: pathlib.Path,
+    rst_dir: pathlib.Path,
+    output_dir: pathlib.Path,
+) -> pathlib.Path | None:
+    """Convert a single RST file to Markdown. Returns output path or None."""
+    rel = rst_file.relative_to(rst_dir).with_suffix(".md")
+    out_path = output_dir / rel
+
+    rst_text = rst_file.read_text(encoding="utf-8")
+    preprocessed = preprocess_rst(rst_text, rst_file)
+    md_text = convert_rst_to_md(preprocessed)
+    md_text = postprocess_md(md_text)
+
+    if not md_text.strip():
+        return None
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(md_text, encoding="utf-8")
+    return out_path
+
+
+def run() -> None:
+    """Run the full conversion pipeline."""
+    import shutil
+
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
+    OUTPUT_DIR.mkdir(parents=True)
+
+    rst_files = discover_rst_files(RST_DIR)
+    print(f"Found {len(rst_files)} RST files to convert.")
+
+    converted = 0
+    for rst_file in rst_files:
+        rel = rst_file.relative_to(RST_DIR)
+        result = convert_file(rst_file, RST_DIR, OUTPUT_DIR)
+        if result:
+            converted += 1
+            print(f"  {rel} -> {result.relative_to(OUTPUT_DIR)}")
+        else:
+            print(f"  {rel} -> (skipped, empty output)")
+
+    print(f"\nConverted {converted}/{len(rst_files)} files.")
+
+    core_files = load_core_config(CORE_CONFIG)
+    manifest = generate_manifest(OUTPUT_DIR, core_files)
+
+    manifest_path = OUTPUT_DIR / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Manifest written to {manifest_path} ({len(manifest['files'])} entries).")
+
+
+def parse_args(args: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--rst-dir",
+        type=pathlib.Path,
+        default=RST_DIR,
+        help="RST source directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=pathlib.Path,
+        default=OUTPUT_DIR,
+        help="Output directory for Markdown files (default: %(default)s)",
+    )
+    return parser.parse_args(args)
+
+
 def main() -> None:
-    """Entry point — implemented in later tasks."""
-    raise NotImplementedError
+    """CLI entry point."""
+    parse_args()
+    run()
 
 
 if __name__ == "__main__":
