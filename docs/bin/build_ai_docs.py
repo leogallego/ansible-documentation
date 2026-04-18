@@ -398,6 +398,180 @@ def convert_file(
     return out_path
 
 
+def generate_readme(manifest: dict, output_dir: pathlib.Path) -> None:
+    """Write a README.md into the output directory for the ai-docs branch."""
+    files = manifest["files"]
+    total_lines = sum(f["lines"] for f in files)
+    core_files = [f for f in files if f.get("core")]
+
+    # Topic stats sorted by count descending
+    topic_counts: dict[str, int] = {}
+    for f in files:
+        topic_counts[f["topic"]] = topic_counts.get(f["topic"], 0) + 1
+
+    topic_rows = "\n".join(
+        f"| `{topic}` | {count} |"
+        for topic, count in sorted(
+            topic_counts.items(), key=lambda x: x[1], reverse=True
+        )
+    )
+
+    # Core files grouped by topic
+    core_by_topic: dict[str, list[str]] = {}
+    for f in core_files:
+        stem = pathlib.PurePosixPath(f["path"]).stem
+        core_by_topic.setdefault(f["topic"], []).append(stem)
+    core_rows = "\n".join(
+        f"| {topic} | {', '.join(f'`{s}`' for s in stems)} |"
+        for topic, stems in sorted(core_by_topic.items())
+    )
+
+    json_example = """\
+```json
+{
+  "version": "1.0",
+  "generated": "2026-04-15T04:38:04Z",
+  "files": [
+    {
+      "path": "playbook_guide/playbooks_intro.md",
+      "topic": "playbook_guide",
+      "title": "Ansible playbooks",
+      "audience": "author",
+      "lines": 123,
+      "core": true,
+      "summary": "Playbooks are automation blueprints..."
+    }
+  ]
+}
+```"""
+
+    readme = f"""\
+# Ansible Documentation for AI
+
+This branch contains the official [Ansible](https://docs.ansible.com/) \
+documentation converted from RST to Markdown, optimized for consumption by \
+AI coding assistants (Claude Code, Copilot, Cursor, etc.).
+
+It is generated automatically by a CI pipeline. Do not edit files on this \
+branch directly — they will be overwritten on the next build.
+
+## Quick start
+
+Fetch the manifest to discover available files:
+
+```
+https://raw.githubusercontent.com/leogallego/ansible-documentation/ai-docs/manifest.json
+```
+
+Then fetch individual files by combining the base URL with any `path` \
+from the manifest:
+
+```
+https://raw.githubusercontent.com/leogallego/ansible-documentation/ai-docs/{{path}}
+```
+
+For example:
+
+```
+https://raw.githubusercontent.com/leogallego/ansible-documentation/ai-docs/playbook_guide/playbooks_intro.md
+```
+
+## What's here
+
+- **{len(files)} Markdown files** covering playbooks, inventory, modules, \
+plugins, collections, developer guides, porting guides, and more
+- **{total_lines:,} total lines** of documentation
+- **`manifest.json`** at the root — a machine-readable index of every file \
+with metadata
+
+## Manifest
+
+`manifest.json` is the entry point for programmatic consumers. It contains \
+metadata for every file so tools can decide what to fetch without \
+downloading everything.
+
+### Structure
+
+{json_example}
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | string | File path relative to the branch root |
+| `topic` | string | Topic area (parent directory) |
+| `title` | string | Document title extracted from the first heading |
+| `audience` | enum | `author`, `developer`, or `both` |
+| `lines` | integer | Line count — useful for context budget decisions |
+| `core` | boolean | Whether this file is in the curated essential set |
+| `summary` | string | One-line description for relevance scoring |
+
+## Core files
+
+{len(core_files)} files are flagged `core: true` in the manifest. These \
+cover the most commonly needed topics and are intended for bundling directly \
+into AI skills or tools for zero-latency access:
+
+| Topic | Files |
+|-------|-------|
+{core_rows}
+
+The core set is configured in `docs/ai-docs-core.yml` on the source branch.
+
+## Topics
+
+| Topic | Files |
+|-------|------:|
+{topic_rows}
+
+## How to use this in AI tools
+
+### CLAUDE.md reference
+
+Add to any project's `CLAUDE.md`:
+
+````markdown
+## Ansible Documentation
+
+When answering Ansible questions or reviewing Ansible code, fetch docs from:
+- Manifest: https://raw.githubusercontent.com/leogallego/ansible-documentation/ai-docs/manifest.json
+- Files: https://raw.githubusercontent.com/leogallego/ansible-documentation/ai-docs/{{path}}
+````
+
+### Programmatic access
+
+1. Fetch `manifest.json`
+2. Filter files by `topic`, `audience`, or `core` flag
+3. Fetch the relevant files by `path`
+4. Use `lines` to stay within your context budget
+
+## How this is generated
+
+A CI pipeline on the source branch:
+
+1. Preprocesses RST — strips Sphinx directives (`toctree`, `versionadded`, \
+`deprecated`, `seealso`), converts Sphinx roles (`:ref:`, `:doc:`) to plain \
+text, resolves `.. include::` directives
+2. Converts to GitHub Flavored Markdown via [pandoc](https://pandoc.org/)
+3. Post-processes — removes residual HTML artifacts from pandoc output
+4. Generates `manifest.json` with extracted metadata
+5. Force-pushes the output to this orphan branch
+
+Source: \
+[`docs/bin/build_ai_docs.py`]\
+(https://github.com/leogallego/ansible-documentation/blob/feat/ai-docs-pipeline/docs/bin/build_ai_docs.py)
+
+## License
+
+This content is derived from the \
+[Ansible documentation](https://github.com/ansible/ansible-documentation) \
+and is subject to the same license terms as the original project.
+"""
+    readme_path = output_dir / "README.md"
+    readme_path.write_text(readme, encoding="utf-8")
+    print(f"README written to {readme_path}.")
+
+
 def run(
     rst_dir: pathlib.Path = RST_DIR,
     output_dir: pathlib.Path = OUTPUT_DIR,
@@ -432,6 +606,8 @@ def run(
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
     print(f"Manifest written to {manifest_path} ({len(manifest['files'])} entries).")
+
+    generate_readme(manifest, output_dir)
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
