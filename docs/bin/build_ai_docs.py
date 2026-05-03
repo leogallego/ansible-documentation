@@ -26,7 +26,7 @@ CORE_CONFIG = ROOT / "docs" / "ai-docs-core.yml"
 
 BASE_URL = (
     "https://raw.githubusercontent.com/leogallego/"
-    "ansible-documentation/ai-docs/docs/docsite/ai-docs"
+    "ansible-documentation/ai-docs"
 )
 
 # Top-level files to exclude (navigation-only)
