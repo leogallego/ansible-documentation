@@ -1,0 +1,15 @@
+# no-dict-itervalues
+
+The `dict.itervalues` method has been removed in Python 3. There are two recommended alternatives:
+
+``` python
+for VALUE in DICT.values():
+   pass
+```
+
+``` python
+from ansible.module_utils.six import itervalues
+
+for VALUE in itervalues(DICT):
+    pass
+```
